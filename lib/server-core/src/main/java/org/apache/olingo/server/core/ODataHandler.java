@@ -33,6 +33,7 @@ import org.apache.olingo.server.api.ODataRequest;
 import org.apache.olingo.server.api.ODataResponse;
 import org.apache.olingo.server.api.ODataServerError;
 import org.apache.olingo.server.api.ODataTranslatedException;
+import org.apache.olingo.server.api.processor.CountProcessor;
 import org.apache.olingo.server.api.processor.DefaultProcessor;
 import org.apache.olingo.server.api.processor.EntityCollectionProcessor;
 import org.apache.olingo.server.api.processor.EntityProcessor;
@@ -227,6 +228,15 @@ public class ODataHandler {
         }
       }
       break;
+    case count:
+      if (request.getMethod().equals(HttpMethod.GET)) {
+      	CountProcessor cp = selectProcessor(CountProcessor.class);
+      	cp.readCount(request, response, uriInfo);
+      } else {
+        throw new ODataHandlerException("not implemented",
+            ODataHandlerException.MessageKeys.FUNCTIONALITY_NOT_IMPLEMENTED);
+      }
+    	break;
     default:
       throw new ODataHandlerException("not implemented",
           ODataHandlerException.MessageKeys.FUNCTIONALITY_NOT_IMPLEMENTED);
