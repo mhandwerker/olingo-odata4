@@ -83,6 +83,7 @@ public class MetadataDocumentXmlSerializer {
   private static final String XML_PARAMETER = "Parameter";
   private static final String XML_IS_COMPOSABLE = "IsComposable";
   private static final String XML_IS_BOUND = "IsBound";
+  private static final String XML_ENTITY_SET_PATH = "EntitySetPath";
   private static final String XML_ENTITY_TYPE = "EntityType";
   private static final String XML_SINGLETON = "Singleton";
   private static final String XML_ACTION = "Action";
@@ -293,7 +294,9 @@ public class MetadataDocumentXmlSerializer {
     for (EdmFunction function : functions) {
       writer.writeStartElement(XML_FUNCTION);
       writer.writeAttribute(XML_NAME, function.getName());
-      // TODO: EntitySetPath
+      if (function.getEntitySetPath() != null) {
+        writer.writeAttribute(XML_ENTITY_SET_PATH, function.getEntitySetPath());
+      }
       writer.writeAttribute(XML_IS_BOUND, "" + function.isBound());
       writer.writeAttribute(XML_IS_COMPOSABLE, "" + function.isComposable());
 

@@ -114,4 +114,9 @@ public abstract class AbstractEdmOperation extends EdmTypeImpl implements EdmOpe
   public boolean isBound() {
     return isBound;
   }
+  
+  @Override
+  public String getEntitySetPath() {
+    return this.entitySetPath;
+  }
 }

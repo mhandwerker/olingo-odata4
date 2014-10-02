@@ -30,6 +30,7 @@ import org.apache.olingo.commons.api.data.Property;
 import org.apache.olingo.commons.api.edm.Edm;
 import org.apache.olingo.commons.api.edm.EdmEntitySet;
 import org.apache.olingo.commons.api.edm.EdmProperty;
+import org.apache.olingo.commons.api.edm.EdmReturnType;
 import org.apache.olingo.server.api.ODataServerError;
 import org.apache.olingo.server.api.ServiceMetadata;
 import org.apache.olingo.server.api.serializer.ODataSerializer;
@@ -116,4 +117,12 @@ public class ODataXmlSerializerImpl implements ODataSerializer {
     throw new SerializerException("error serialization not implemented for XML format",
       SerializerException.MessageKeys.NOT_IMPLEMENTED);
 	}
+
+  @Override
+  public InputStream procedureReturn(EdmReturnType returnType,
+      Property property, ODataSerializerOptions options)
+      throws SerializerException {
+    // rameshTODO Auto-generated method stub
+    return null;
+  }
 }

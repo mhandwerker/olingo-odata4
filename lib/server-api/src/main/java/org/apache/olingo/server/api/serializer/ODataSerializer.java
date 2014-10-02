@@ -26,6 +26,7 @@ import org.apache.olingo.commons.api.data.Property;
 import org.apache.olingo.commons.api.edm.Edm;
 import org.apache.olingo.commons.api.edm.EdmEntitySet;
 import org.apache.olingo.commons.api.edm.EdmProperty;
+import org.apache.olingo.commons.api.edm.EdmReturnType;
 import org.apache.olingo.server.api.ODataServerError;
 import org.apache.olingo.server.api.ServiceMetadata;
 import org.apache.olingo.server.api.uri.queryoption.ExpandOption;
@@ -67,6 +68,15 @@ public interface ODataSerializer {
    */
   InputStream entityProperty(EdmProperty edmProperty, Property property, ODataSerializerOptions options)
           throws SerializerException;
+  
+  /**
+   * Writes the Function/Action procedure return values.
+   * @param returnType return type definition
+   * @param property property value
+   * @param options options for the serializer
+   */
+  InputStream procedureReturn(EdmReturnType returnType, Property property,
+      ODataSerializerOptions options) throws SerializerException;
 
   /**
    * Writes entity-set data into an InputStream.

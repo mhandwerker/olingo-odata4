@@ -64,4 +64,9 @@ public interface EdmOperation extends EdmType, EdmAnnotatable {
    */
   Boolean isBindingParameterTypeCollection();
 
+  /**
+   * @return EntitySetPath if one available 
+   * @return
+   */
+  String getEntitySetPath();
 }

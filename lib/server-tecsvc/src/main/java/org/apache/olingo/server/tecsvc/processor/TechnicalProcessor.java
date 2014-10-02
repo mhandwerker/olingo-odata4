@@ -24,16 +24,22 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TreeMap;
 
 import org.apache.olingo.commons.api.data.ContextURL;
 import org.apache.olingo.commons.api.data.ContextURL.Suffix;
 import org.apache.olingo.commons.api.data.Entity;
 import org.apache.olingo.commons.api.data.EntitySet;
 import org.apache.olingo.commons.api.data.Property;
+import org.apache.olingo.commons.api.edm.Edm;
+import org.apache.olingo.commons.api.edm.EdmAction;
 import org.apache.olingo.commons.api.edm.EdmEntitySet;
+import org.apache.olingo.commons.api.edm.EdmEntityType;
+import org.apache.olingo.commons.api.edm.EdmFunction;
 import org.apache.olingo.commons.api.edm.EdmPrimitiveType;
 import org.apache.olingo.commons.api.edm.EdmPrimitiveTypeException;
 import org.apache.olingo.commons.api.edm.EdmProperty;
+import org.apache.olingo.commons.api.edm.EdmReturnType;
 import org.apache.olingo.commons.api.format.ContentType;
 import org.apache.olingo.commons.api.format.ODataFormat;
 import org.apache.olingo.commons.api.http.HttpContentType;
@@ -46,7 +52,9 @@ import org.apache.olingo.server.api.ODataResponse;
 import org.apache.olingo.server.api.ServiceMetadata;
 import org.apache.olingo.server.api.processor.EntityProcessor;
 import org.apache.olingo.server.api.processor.EntitySetProcessor;
+import org.apache.olingo.server.api.processor.ProcedureProcessor;
 import org.apache.olingo.server.api.processor.PropertyProcessor;
+import org.apache.olingo.server.api.serializer.BoundProcedureOption;
 import org.apache.olingo.server.api.serializer.ODataSerializer;
 import org.apache.olingo.server.api.serializer.ODataSerializerOptions;
 import org.apache.olingo.server.api.serializer.SerializerException;
@@ -54,7 +62,9 @@ import org.apache.olingo.server.api.uri.UriInfo;
 import org.apache.olingo.server.api.uri.UriInfoResource;
 import org.apache.olingo.server.api.uri.UriParameter;
 import org.apache.olingo.server.api.uri.UriResource;
+import org.apache.olingo.server.api.uri.UriResourceAction;
 import org.apache.olingo.server.api.uri.UriResourceEntitySet;
+import org.apache.olingo.server.api.uri.UriResourceFunction;
 import org.apache.olingo.server.api.uri.UriResourceKind;
 import org.apache.olingo.server.api.uri.UriResourceProperty;
 import org.apache.olingo.server.api.uri.queryoption.ExpandOption;
@@ -64,18 +74,20 @@ import org.apache.olingo.server.tecsvc.data.DataProvider;
 /**
  * Technical Processor which provides currently implemented processor functionality.
  */
-public class TechnicalProcessor implements EntitySetProcessor, EntityProcessor, PropertyProcessor {
+public class TechnicalProcessor implements EntitySetProcessor, EntityProcessor, PropertyProcessor, ProcedureProcessor {
 
   private OData odata;
   private DataProvider dataProvider;
+  private ServiceMetadata edm;
 
   public TechnicalProcessor(final DataProvider dataProvider) {
-    this.dataProvider = dataProvider;
+    this.dataProvider = dataProvider;    
   }
 
   @Override
   public void init(final OData odata, final ServiceMetadata edm) {
     this.odata = odata;
+    this.edm = edm;
   }
 
   @Override
@@ -296,5 +308,163 @@ public class TechnicalProcessor implements EntitySetProcessor, EntityProcessor, 
         response.setHeader(HttpHeader.CONTENT_TYPE, ContentType.TEXT_PLAIN.toContentTypeString());
       }
     }
+  }
+
+  @Override
+  public void executeFunction(ODataRequest request, ODataResponse response,
+      UriInfo uriInfo, ContentType requestedContentType) throws ODataApplicationException, SerializerException {
+    final List<UriResource> resourcePaths = uriInfo.getUriResourceParts();
+    Object result = null;
+
+    UriResourceFunction functionURI = null;
+    for (UriResource uriResource:resourcePaths) {
+      if (uriResource instanceof UriResourceFunction) {
+        functionURI = (UriResourceFunction)uriResource;
+        break;
+      }
+    }
+    
+    if (functionURI == null) {
+      throw new ODataApplicationException("Function not found",
+          HttpStatusCode.INTERNAL_SERVER_ERROR.getStatusCode(), Locale.ROOT);
+    }
+    
+    ODataSerializerOptions.Builder options = ODataSerializerOptions.with();
+    if (functionURI.getFunction().isBound()) {
+      options.boundProcedure(BoundProcedureOption.with()
+          .setFunction(functionURI.getFunction())
+          .setTarget(request.getRawODataPath())
+          .setTitle(functionURI.getFunction().getName()).build());
+    }
+
+    EdmFunction edmFunction = functionURI.getFunction();
+    result = dataProvider.invokeFunction(functionURI);
+    if (result == null) {
+      response.setStatusCode(HttpStatusCode.INTERNAL_SERVER_ERROR.getStatusCode());
+    } else {
+        final ODataFormat format = ODataFormat.fromContentType(requestedContentType);
+        ODataSerializer serializer = odata.createSerializer(format);      
+        EdmReturnType returnType = edmFunction.getReturnType();
+        switch(returnType.getType().getKind()) {
+        case PRIMITIVE:          
+        case COMPLEX:
+          ContextURL.Builder contextURL = ContextURL.with().propertyType(returnType.getType());
+          if (returnType.isCollection()) {
+            contextURL.asCollection();
+          }
+          response.setContent(serializer.procedureReturn(returnType, (Property)result,
+              options.contextURL(format == ODataFormat.JSON_NO_METADATA ? null :
+                contextURL.build()).build()));
+          response.setStatusCode(HttpStatusCode.OK.getStatusCode());
+          response.setHeader(HttpHeader.CONTENT_TYPE, requestedContentType.toContentTypeString());          
+          break;
+        case ENTITY:
+          EdmEntitySet edmEntitySet = null;
+          if (edmFunction.isBound()) {
+            //TODO: this needs to be fixed to return correct entitySet
+            edmEntitySet = edmFunction.getReturnedEntitySet(null);
+          } else {
+            edmEntitySet = functionURI.getFunctionImport().getReturnedEntitySet();
+          }
+          if (edmEntitySet == null) {
+            throw new ODataApplicationException("EntitySet type not defined on function",
+                HttpStatusCode.INTERNAL_SERVER_ERROR.getStatusCode(), Locale.ROOT);
+          }          
+          if (returnType.isCollection()) {
+            response.setContent(serializer.entitySet(edmEntitySet, (EntitySet)result,                 
+                options.contextURL(format == ODataFormat.JSON_NO_METADATA ? null: 
+                    getContextUrl(serializer, edmEntitySet, false, null, null, null)).build()));           
+          } else {
+            response.setContent(serializer.entity(edmEntitySet, (Entity) result,
+                options.contextURL(format == ODataFormat.JSON_NO_METADATA ? null: 
+                      getContextUrl(serializer, edmEntitySet, true, null, null, null)).build()));           
+          }
+          response.setStatusCode(HttpStatusCode.OK.getStatusCode());
+          response.setHeader(HttpHeader.CONTENT_TYPE, requestedContentType.toContentTypeString());
+          break;
+        default:
+          throw new ODataApplicationException("Return type not supported",
+              HttpStatusCode.INTERNAL_SERVER_ERROR.getStatusCode(), Locale.ROOT);
+        }    
+    }       
+  }
+
+  @Override
+  public void executeAction(ODataRequest request, ODataResponse response,
+      UriInfo uriInfo, ContentType requestedContentType) throws ODataApplicationException, SerializerException {
+    final List<UriResource> resourcePaths = uriInfo.getUriResourceParts();
+    Object result = null;
+
+    UriResourceAction actionURI = null;
+    for (UriResource uriResource:resourcePaths) {
+      if (uriResource instanceof UriResourceAction) {
+        actionURI = (UriResourceAction)uriResource;
+        break;
+      }
+    }
+    
+    if (actionURI == null) {
+      throw new ODataApplicationException("Action not found",
+          HttpStatusCode.INTERNAL_SERVER_ERROR.getStatusCode(), Locale.ROOT);
+    }
+    
+    ODataSerializerOptions.Builder options = ODataSerializerOptions.with();
+    if (actionURI.getAction().isBound()) {
+      options.boundProcedure(BoundProcedureOption.with()
+          .setAction(actionURI.getAction())
+          .setTarget(request.getRawODataPath())
+          .setTitle(actionURI.getAction().getName()).build());
+    }
+
+    EdmAction edmAction = actionURI.getAction();
+    result = dataProvider.invokeAction(actionURI);
+    if (result == null) {
+      response.setStatusCode(HttpStatusCode.INTERNAL_SERVER_ERROR.getStatusCode());
+    } else {
+        final ODataFormat format = ODataFormat.fromContentType(requestedContentType);
+        ODataSerializer serializer = odata.createSerializer(format);      
+        EdmReturnType returnType = edmAction.getReturnType();
+        switch(returnType.getType().getKind()) {
+        case PRIMITIVE:          
+        case COMPLEX:
+          ContextURL.Builder contextURL = ContextURL.with().propertyType(returnType.getType());
+          if (returnType.isCollection()) {
+            contextURL.asCollection();
+          }
+          response.setContent(serializer.procedureReturn(returnType, (Property)result,
+              options.contextURL(format == ODataFormat.JSON_NO_METADATA ? null :
+                contextURL.build()).build()));
+          response.setStatusCode(HttpStatusCode.OK.getStatusCode());
+          response.setHeader(HttpHeader.CONTENT_TYPE, requestedContentType.toContentTypeString());          
+          break;
+        case ENTITY:
+          EdmEntitySet edmEntitySet = null;
+          if (edmAction.isBound()) {
+            //TODO: this needs to be fixed to return correct entitySet
+            edmEntitySet = edmAction.getReturnedEntitySet(null);
+          } else {
+            edmEntitySet = actionURI.getActionImport().getReturnedEntitySet();
+          }
+          if (edmEntitySet == null) {
+            throw new ODataApplicationException("EntitySet type not defined on function",
+                HttpStatusCode.INTERNAL_SERVER_ERROR.getStatusCode(), Locale.ROOT);
+          }          
+          if (returnType.isCollection()) {
+            response.setContent(serializer.entitySet(edmEntitySet, (EntitySet)result,                 
+                options.contextURL(format == ODataFormat.JSON_NO_METADATA ? null: 
+                    getContextUrl(serializer, edmEntitySet, false, null, null, null)).build()));           
+          } else {
+            response.setContent(serializer.entity(edmEntitySet, (Entity) result,
+                options.contextURL(format == ODataFormat.JSON_NO_METADATA ? null: 
+                      getContextUrl(serializer, edmEntitySet, true, null, null, null)).build()));           
+          }
+          response.setStatusCode(HttpStatusCode.OK.getStatusCode());
+          response.setHeader(HttpHeader.CONTENT_TYPE, requestedContentType.toContentTypeString());
+          break;
+        default:
+          throw new ODataApplicationException("Return type not supported",
+              HttpStatusCode.INTERNAL_SERVER_ERROR.getStatusCode(), Locale.ROOT);
+        }    
+    }       
   }
 }

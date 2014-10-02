@@ -35,8 +35,10 @@ import org.apache.olingo.commons.api.data.Link;
 import org.apache.olingo.commons.api.data.LinkedComplexValue;
 import org.apache.olingo.commons.api.data.Property;
 import org.apache.olingo.commons.api.data.ValueType;
+import org.apache.olingo.commons.api.edm.EdmAction;
 import org.apache.olingo.commons.api.edm.EdmEntitySet;
 import org.apache.olingo.commons.api.edm.EdmEntityType;
+import org.apache.olingo.commons.api.edm.EdmFunction;
 import org.apache.olingo.commons.api.edm.EdmPrimitiveType;
 import org.apache.olingo.commons.api.edm.EdmPrimitiveTypeException;
 import org.apache.olingo.commons.api.edm.EdmProperty;
@@ -48,6 +50,10 @@ import org.apache.olingo.commons.core.data.LinkedComplexValueImpl;
 import org.apache.olingo.commons.core.data.PropertyImpl;
 import org.apache.olingo.server.api.ODataApplicationException;
 import org.apache.olingo.server.api.uri.UriParameter;
+import org.apache.olingo.server.api.uri.UriResourceAction;
+import org.apache.olingo.server.api.uri.UriResourceFunction;
+import org.apache.olingo.server.tecsvc.provider.ActionProvider;
+import org.apache.olingo.server.tecsvc.provider.FunctionProvider;
 
 public class DataProvider {
 
@@ -542,5 +548,106 @@ public class DataProvider {
     target.getEntities().addAll(targets);
     link.setInlineEntitySet(target);
     entity.getNavigationLinks().add(link);
+  }
+  
+  public Object invokeFunction(UriResourceFunction uriFunction) {
+    final EdmFunction function = uriFunction.getFunction(); 
+    final List<UriParameter> keys = uriFunction.getParameters();
+    
+    if (function.isBound()) {
+      if (function.getFullQualifiedName().equals(FunctionProvider.nameBFESTwoPrimRTString)) {
+        // bound - return primitive
+        return createPrimitive("any", "TEST-A");
+      } else if (function.getFullQualifiedName().equals(FunctionProvider.nameBFESTwoPrimRTCollString)) {
+        // bound - return Collection(primitive)
+        return createCollection("any", "dummy1", "dummy2");
+      } else if (function.getFullQualifiedName().equals(FunctionProvider.nameBFESTwoPrimRTETTwoPrim)) {
+        // bound- entity
+        return data.get("ESTwoPrim").getEntities().get(0);
+      } else if (function.getFullQualifiedName().equals(FunctionProvider.nameBFESTwoPrimRTString)) {
+        // bound- Collection(entity)
+        List<Entity> rows =  data.get("ESTwoPrim").getEntities();
+      } else if (function.getFullQualifiedName().equals(FunctionProvider.nameBFCETTwoKeyNavRTCTTwoPrim)) {
+        // bound- complex
+        LinkedComplexValue complexValue = new LinkedComplexValueImpl();
+        complexValue.getValue().add(createPrimitive("PropertyInt16", 5));
+        complexValue.getValue().add(createPrimitive("PropertyString", "TEST-A"));
+        return new PropertyImpl(null, "PropertyComp", ValueType.LINKED_COMPLEX, complexValue);
+      } else if (function.getFullQualifiedName().equals(FunctionProvider.nameBFCESTwoKeyNavRTCollCTTwoPrim)) {
+        // bound- Collection(complex)
+        List<LinkedComplexValue> complexCollection = new ArrayList<LinkedComplexValue>();
+        LinkedComplexValue complexValue = new LinkedComplexValueImpl();
+        complexValue.getValue().add(createPrimitive("PropertyInt16", 5));
+        complexValue.getValue().add(createPrimitive("PropertyString", "TEST-A"));      
+        complexCollection.add(complexValue);
+        complexCollection.add(complexValue);
+        return new PropertyImpl(null, "PropertyComp", ValueType.COLLECTION_LINKED_COMPLEX, complexCollection);
+      }
+    }
+    
+    if (function.getFullQualifiedName().equals(FunctionProvider.nameUFNRTInt16)) {
+      // unbound - return primitive
+      return createPrimitive("any", new Short((short)5));
+    } else if (function.getFullQualifiedName().equals(FunctionProvider.nameUFCRTCollString)) {
+      // unbound - return Collection(primitive)
+      return createCollection("any", "dummy1", "dummy2");
+    } else if (function.getFullQualifiedName().equals(FunctionProvider.nameUFCRTETAllPrimTwoParam)) {
+      // unbound- entity
+      String parameterString = getParameter("ParameterString", keys).getText();
+      short parameterInt16 = Short.valueOf(getParameter("ParameterInt16", keys).getText());
+      return data.get("ESAllPrim").getEntities().get(0);
+    } else if (function.getFullQualifiedName().equals(FunctionProvider.nameUFCRTESMixPrimCollCompTwoParam)) {
+      // unbound- Collection(entity)
+      String parameterString = getParameter("ParameterString", keys).getText();
+      short ParameterInt16 = Short.valueOf(getParameter("ParameterInt16", keys).getText());
+      return data.get("ESMixPrimCollComp");
+    } else if (function.getFullQualifiedName().equals(FunctionProvider.nameUFCRTCTTwoPrimParam)) {
+      // unbound- complex
+      String parameterString = unquote(getParameter("ParameterString", keys).getText());
+      short parameterInt16 = Short.valueOf(getParameter("ParameterInt16", keys).getText());
+      LinkedComplexValue complexValue = new LinkedComplexValueImpl();
+      complexValue.getValue().add(createPrimitive("PropertyInt16", parameterInt16));
+      complexValue.getValue().add(createPrimitive("PropertyString", parameterString));
+      return new PropertyImpl(null, "PropertyComp", ValueType.LINKED_COMPLEX, complexValue);
+    } else if (function.getFullQualifiedName().equals(FunctionProvider.nameUFCRTCollCTTwoPrimParam)) {
+      // unbound- Collection(complex)
+      String parameterString = unquote(getParameter("ParameterString", keys).getText());
+      short parameterInt16 = Short.valueOf(getParameter("ParameterInt16", keys).getText());
+      List<LinkedComplexValue> complexCollection = new ArrayList<LinkedComplexValue>();
+      LinkedComplexValue complexValue = new LinkedComplexValueImpl();
+      complexValue.getValue().add(createPrimitive("PropertyInt16", parameterInt16));
+      complexValue.getValue().add(createPrimitive("PropertyString", parameterString));      
+      complexCollection.add(complexValue);
+      complexCollection.add(complexValue);
+      return new PropertyImpl(null, "PropertyComp", ValueType.COLLECTION_LINKED_COMPLEX, complexCollection);
+    }
+    return null;
+  }
+  
+  public Object invokeAction(UriResourceAction uriAction) {
+    final EdmAction action = uriAction.getAction(); 
+    final List<UriParameter> keys = uriAction.getParameters();
+    
+    if (action.getFullQualifiedName().equals(ActionProvider.nameUARTPrimParam)) {
+      // unbound - return primitive
+      return createPrimitive("any", "return-string");
+    }    
+    return null;
+  }  
+  
+  private UriParameter getParameter(String name, List<UriParameter> keys) {
+    for (UriParameter key:keys) {
+      if (key.getName().equals(name)) {
+        return key;
+      }
+    }
+    return null;
+  }
+  
+  private static String unquote(String str) {
+    if (str.startsWith("'") && str.endsWith("'")) {
+      return str.substring(1, str.length()-1);
+    }
+    return str;
   }
 }

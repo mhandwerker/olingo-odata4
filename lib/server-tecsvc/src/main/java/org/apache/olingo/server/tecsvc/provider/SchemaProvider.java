@@ -165,6 +165,10 @@ public class SchemaProvider {
     functions.addAll(prov.getFunctions(FunctionProvider.nameBFCESTwoKeyNavRTStringParam));
     functions.addAll(prov.getFunctions(FunctionProvider.nameBFCESKeyNavRTETKeyNavParam));
     functions.addAll(prov.getFunctions(FunctionProvider.nameBFCCTPrimCompRTETTwoKeyNavParam));
+    functions.addAll(prov.getFunctions(FunctionProvider.nameBFESTwoPrimRTString));
+    functions.addAll(prov.getFunctions(FunctionProvider.nameBFESTwoPrimRTCollString));
+    functions.addAll(prov.getFunctions(FunctionProvider.nameBFESTwoPrimRTETTwoPrim));
+    
     // functions.addAll(prov.getFunctions(FunctionProvider.nameBFCCTPrimCompRTESTwoKeyNavParam));
 
     // EntityContainer

@@ -18,6 +18,8 @@
  */
 package org.apache.olingo.server.api.uri;
 
+import java.util.List;
+
 import org.apache.olingo.commons.api.edm.EdmAction;
 import org.apache.olingo.commons.api.edm.EdmActionImport;
 
@@ -38,5 +40,10 @@ public interface UriResourceAction extends UriResourcePartTyped {
    * @return
    */
   EdmActionImport getActionImport();
+  
+  /**
+   * @return List of action parameters
+   */
+  List<UriParameter> getParameters();  
 
 }

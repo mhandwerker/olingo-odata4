@@ -38,6 +38,7 @@ import org.apache.olingo.server.api.processor.EntitySetProcessor;
 import org.apache.olingo.server.api.processor.EntityProcessor;
 import org.apache.olingo.server.api.processor.ExceptionProcessor;
 import org.apache.olingo.server.api.processor.MetadataProcessor;
+import org.apache.olingo.server.api.processor.ProcedureProcessor;
 import org.apache.olingo.server.api.processor.Processor;
 import org.apache.olingo.server.api.processor.PropertyProcessor;
 import org.apache.olingo.server.api.processor.ServiceDocumentProcessor;
@@ -271,6 +272,32 @@ public class ODataHandler {
         throw new ODataHandlerException("not implemented",
             ODataHandlerException.MessageKeys.FUNCTIONALITY_NOT_IMPLEMENTED);
       }
+      break;
+    case action:
+      if (request.getMethod().equals(HttpMethod.POST)) {
+        ProcedureProcessor pp = selectProcessor(ProcedureProcessor.class);
+
+        requestedContentType =
+            ContentNegotiator.doContentNegotiation(uriInfo.getFormatOption(), request, pp, ProcedureProcessor.class);
+
+        pp.executeAction(request, response, uriInfo, requestedContentType);
+      } else {
+        throw new ODataHandlerException("not implemented",
+            ODataHandlerException.MessageKeys.FUNCTIONALITY_NOT_IMPLEMENTED);
+      }            
+      break;
+    case function:
+      if (request.getMethod().equals(HttpMethod.GET)) {
+        ProcedureProcessor pp = selectProcessor(ProcedureProcessor.class);
+
+        requestedContentType =
+            ContentNegotiator.doContentNegotiation(uriInfo.getFormatOption(), request, pp, ProcedureProcessor.class);
+
+        pp.executeFunction(request, response, uriInfo, requestedContentType);
+      } else {
+        throw new ODataHandlerException("not implemented",
+            ODataHandlerException.MessageKeys.FUNCTIONALITY_NOT_IMPLEMENTED);
+      }      
       break;
     default:
       throw new ODataHandlerException("not implemented",

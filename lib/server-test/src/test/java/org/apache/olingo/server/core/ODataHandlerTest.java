@@ -40,9 +40,11 @@ import org.apache.olingo.server.api.ServiceMetadata;
 import org.apache.olingo.server.api.edmx.EdmxReference;
 import org.apache.olingo.server.api.processor.EntitySetProcessor;
 import org.apache.olingo.server.api.processor.MetadataProcessor;
+import org.apache.olingo.server.api.processor.ProcedureProcessor;
 import org.apache.olingo.server.api.processor.PropertyProcessor;
 import org.apache.olingo.server.api.processor.ServiceDocumentProcessor;
 import org.apache.olingo.server.api.uri.UriInfo;
+import org.apache.olingo.server.tecsvc.provider.ActionProvider;
 import org.apache.olingo.server.tecsvc.provider.EdmTechProvider;
 import org.junit.Before;
 import org.junit.Test;
@@ -341,4 +343,61 @@ public class ODataHandlerTest {
             Mockito.any(UriInfo.class),
             Mockito.any(ContentType.class));
   }
+  
+  @Test
+  public void testInvokeActionImport() throws Exception {
+    ODataRequest request = new ODataRequest();
+
+    request.setMethod(HttpMethod.POST);
+    request.setRawODataPath("AIRTPrimParam(ParameterInt16=1)");
+
+    ProcedureProcessor processor = mock(ProcedureProcessor.class);
+    handler.register(processor);
+
+    ODataResponse response = handler.process(request);
+
+    Mockito.verify(processor).executeAction(
+            Mockito.any(ODataRequest.class), 
+            Mockito.any(ODataResponse.class), 
+            Mockito.any(UriInfo.class),
+            Mockito.any(ContentType.class));
+  }
+  
+  public void testInvokeFunctionImport() throws Exception {
+    ODataRequest request = new ODataRequest();
+
+    request.setMethod(HttpMethod.GET);
+    request.setRawODataPath("FICRTETTwoKeyNavParam(ParameterInt16=1)");
+
+    ProcedureProcessor processor = mock(ProcedureProcessor.class);
+    handler.register(processor);
+
+    ODataResponse response = handler.process(request);
+    
+    Mockito.verify(processor).executeFunction(
+        Mockito.any(ODataRequest.class), 
+        Mockito.any(ODataResponse.class), 
+        Mockito.any(UriInfo.class),
+        Mockito.any(ContentType.class));
+  }
+  
+  @Test
+  public void testInvokeBoundAction() throws Exception {
+    ODataRequest request = new ODataRequest();
+
+    request.setMethod(HttpMethod.POST);
+    request.setRawODataPath("ESAllPrim/"
+        + ActionProvider.nameBAESAllPrimRTETAllPrim.getFullQualifiedNameAsString());
+
+    ProcedureProcessor processor = mock(ProcedureProcessor.class);
+    handler.register(processor);
+
+    ODataResponse response = handler.process(request);
+    
+    Mockito.verify(processor).executeAction(
+            Mockito.any(ODataRequest.class), 
+            Mockito.any(ODataResponse.class), 
+            Mockito.any(UriInfo.class),
+            Mockito.any(ContentType.class));
+  }   
 }

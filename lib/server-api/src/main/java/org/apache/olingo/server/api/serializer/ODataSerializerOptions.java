@@ -30,6 +30,7 @@ public class ODataSerializerOptions {
   private CountOption count;
   private ExpandOption expand;
   private SelectOption select;
+  private BoundProcedureOption boundProcedure;
 
   /** Gets the {@link ContextURL}. */
   public ContextURL getContextURL() {
@@ -50,7 +51,12 @@ public class ODataSerializerOptions {
   public SelectOption getSelect() {
     return select;
   }
-
+  
+  /** Gets BoundProcedure options */
+  public BoundProcedureOption getBoundProcedure() {
+    return boundProcedure;
+  }
+  
   private ODataSerializerOptions() {}
 
   /** Initializes the options builder. */
@@ -90,6 +96,13 @@ public class ODataSerializerOptions {
       options.select = select;
       return this;
     }
+    /**
+     * Sets bound procedure (fuction/action) metadata   
+     */
+    public Builder boundProcedure(final BoundProcedureOption proc) {
+      options.boundProcedure = proc;
+      return this;
+    }    
 
     /** Builds the OData serializer options. */
     public ODataSerializerOptions build() {

@@ -18,6 +18,10 @@
  */
 package org.apache.olingo.server.core.uri.parser;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 import org.antlr.v4.runtime.misc.NotNull;
 import org.antlr.v4.runtime.misc.ParseCancellationException;
 import org.antlr.v4.runtime.tree.ParseTree;
@@ -181,9 +185,6 @@ import org.apache.olingo.server.core.uri.queryoption.expression.MethodImpl;
 import org.apache.olingo.server.core.uri.queryoption.expression.TypeLiteralImpl;
 import org.apache.olingo.server.core.uri.queryoption.expression.UnaryImpl;
 
-import java.util.ArrayList;
-import java.util.List;
-
 /**
  * UriVisitor
  * 
@@ -312,10 +313,24 @@ public class UriParseTreeVisitor extends UriParserBaseVisitor<Object> {
       // check ActionImport
       EdmActionImport edmActionImport = edmEntityContainer.getActionImport(odi);
       if (edmActionImport != null) {
-        UriResourceActionImpl uriResource = new UriResourceActionImpl()
-            .setActionImport(edmActionImport);
+        
+        // read the URI parameters, since unbound actions can not be overloaded
+        // there can be atmost one with given name
+        List<UriParameterImpl> parameters = Collections.EMPTY_LIST;
+        if (!ctx.vlNVO.isEmpty()) {
+          context.contextReadingFunctionParameters = true;
+          parameters = (List<UriParameterImpl>) ctx.vlNVO.get(0).accept(this);
+          context.contextReadingFunctionParameters = false;
+          
+          // mark parameters as consumed
+          ctx.vlNVO.remove(0);
+        }
+
+        UriResourceActionImpl uriResource = new UriResourceActionImpl().setActionImport(edmActionImport, parameters);
+
+        uriResource.setAction(edmActionImport.getUnboundAction());
         context.contextUriInfo.addResourcePart(uriResource);
-        return null;
+        return null;        
       }
 
       // check FunctionImport

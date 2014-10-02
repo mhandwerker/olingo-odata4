@@ -349,6 +349,8 @@ public class ContainerProvider {
         return new FunctionImport()
             .setName("FICRTESMixPrimCollCompTwoParam")
             .setFunction(FunctionProvider.nameUFCRTESMixPrimCollCompTwoParam)
+            .setEntitySet(new Target.Builder(entityContainer.getFullQualifiedNameAsString()
+                +"/ESMixPrimCollComp", null).build())
             .setIncludeInServiceDocument(true);
 
       } else if (name.equals("FINRTESMixPrimCollCompTwoParam")) {
@@ -405,6 +407,12 @@ public class ContainerProvider {
             .setFunction(FunctionProvider.nameUFCRTCollCTTwoPrimParam)
             .setIncludeInServiceDocument(true);
 
+      } else if (name.equals("FICRTETAllPrimTwoParam")) {
+        return new FunctionImport()
+        .setName("FICRTETAllPrimTwoParam")
+        .setFunction(FunctionProvider.nameUFCRTETAllPrimTwoParam)
+        .setEntitySet(new Target.Builder(entityContainer.getFullQualifiedNameAsString()+"/ESAllPrim", null).build())
+        .setIncludeInServiceDocument(true);
       }
     }
 

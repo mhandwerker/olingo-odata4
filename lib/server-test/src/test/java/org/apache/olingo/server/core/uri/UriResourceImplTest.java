@@ -44,6 +44,7 @@ import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
@@ -84,7 +85,7 @@ public class UriResourceImplTest {
     // action import
     impl = new UriResourceActionImpl();
     EdmActionImport actionImport = edm.getEntityContainer(null).getActionImport("AIRTPrimParam");
-    impl.setActionImport(actionImport);
+    impl.setActionImport(actionImport, Collections.EMPTY_LIST);
     assertEquals(actionImport, impl.getActionImport());
     assertEquals(actionImport.getUnboundAction(), impl.getAction());
     assertEquals(false, impl.isCollection());

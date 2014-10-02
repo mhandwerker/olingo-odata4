@@ -20,6 +20,7 @@ package org.apache.olingo.server.tecsvc.provider;
 
 import org.apache.olingo.commons.api.ODataException;
 import org.apache.olingo.commons.api.edm.FullQualifiedName;
+import org.apache.olingo.server.api.edm.provider.EntitySetPath;
 import org.apache.olingo.server.api.edm.provider.Function;
 import org.apache.olingo.server.api.edm.provider.Parameter;
 import org.apache.olingo.server.api.edm.provider.ReturnType;
@@ -111,6 +112,17 @@ public class FunctionProvider {
 
   public static final FullQualifiedName nameBFESTwoKeyNavRTESTwoKeyNav =
       new FullQualifiedName(SchemaProvider.NAMESPACE, "BFESTwoKeyNavRTESTwoKeyNav");
+  
+  public static final FullQualifiedName nameBFESTwoPrimRTString =
+      new FullQualifiedName(SchemaProvider.NAMESPACE, "BFESTwoPrimRTString");
+
+  public static final FullQualifiedName nameBFESTwoPrimRTCollString =
+      new FullQualifiedName(SchemaProvider.NAMESPACE, "BFESTwoPrimRTCollString");
+  
+  public static final FullQualifiedName nameBFESTwoPrimRTETTwoPrim =
+      new FullQualifiedName(SchemaProvider.NAMESPACE, "BFESTwoPrimRTETTwoPrim");
+  
+  
 
   // Unbound Functions
   public static final FullQualifiedName nameUFCRTCollCTTwoPrim =
@@ -839,13 +851,61 @@ public class FunctionProvider {
                       new Parameter().setName("BindingParam").setType(ComplexTypeProvider.nameCTPrimComp).setNullable(
                           false),
                       new Parameter().setName("ParameterString").setType(PropertyProvider.nameString)
-                          .setNullable(false)))
+                          .setNullable(false)))              
               .setComposable(true)
               .setReturnType(
                   new ReturnType().setType(EntityTypeProvider.nameETTwoKeyNav).setCollection(true).setNullable(false))
           );
+    } else if (functionName.equals(nameBFESTwoPrimRTString)) {
+      return Arrays.asList(
+          new Function()
+              .setName("BFESTwoPrimRTString")
+              .setBound(true)
+              .setParameters(
+                  Arrays.asList(
+                      new Parameter().setName("BindingParam").setType(EntityTypeProvider.nameETTwoPrim).setNullable(
+                          false).setCollection(true)))
+              .setEntitySetPath(new EntitySetPath().
+                  setBindingParameter("BindingParam").setPath("ESTwoPrim"))                          
+              .setComposable(true)
+              .setReturnType(
+                  new ReturnType().setType(PropertyProvider.nameString).setCollection(false).setNullable(false))
+          );
+    } else if (functionName.equals(nameBFESTwoPrimRTCollString)) {
+      return Arrays.asList(
+          new Function()
+              .setName("BFESTwoPrimRTCollString")
+              .setBound(true)
+              .setParameters(
+                  Arrays.asList(
+                      new Parameter().setName("BindingParam").
+                      setType(EntityTypeProvider.nameETTwoPrim).setNullable(false)))
+              .setEntitySetPath(new EntitySetPath().setBindingParameter("BindingParam")
+                  .setPath("ESTwoPrim"))                          
+              .setComposable(true)
+              .setReturnType(
+                  new ReturnType().setType(PropertyProvider.nameString).setCollection(true).setNullable(false))
+          );
+    } else if (functionName.equals(nameBFESTwoPrimRTETTwoPrim)) {
+      return Arrays.asList(
+          new Function()
+              .setName("BFESTwoPrimRTETTwoPrim")
+              .setBound(true)
+              .setParameters(
+                  Arrays.asList(
+                      new Parameter().setName("BindingParam")
+                      .setType(EntityTypeProvider.nameETTwoPrim).setNullable(false).setCollection(true),
+                      new Parameter().setName("ParameterString")
+                      .setType(PropertyProvider.nameString).setNullable(false)))
+              .setEntitySetPath(new EntitySetPath().setBindingParameter("BindingParam")
+                  .setPath("ESTwoPrim"))                          
+              .setComposable(true)
+              .setReturnType(
+                  new ReturnType().setType(EntityTypeProvider.nameETTwoPrim)
+                  .setCollection(false).setNullable(false))
+          );
     }
-
+    
     return null;
   }
 

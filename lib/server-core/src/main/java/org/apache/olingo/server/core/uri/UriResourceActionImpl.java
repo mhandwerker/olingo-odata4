@@ -18,9 +18,13 @@
  */
 package org.apache.olingo.server.core.uri;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import org.apache.olingo.commons.api.edm.EdmAction;
 import org.apache.olingo.commons.api.edm.EdmActionImport;
 import org.apache.olingo.commons.api.edm.EdmType;
+import org.apache.olingo.server.api.uri.UriParameter;
 import org.apache.olingo.server.api.uri.UriResourceAction;
 import org.apache.olingo.server.api.uri.UriResourceKind;
 
@@ -28,6 +32,7 @@ public class UriResourceActionImpl extends UriResourceTypedImpl implements UriRe
 
   protected EdmAction action;
   protected EdmActionImport actionImport;
+  protected List<UriParameterImpl> parameters;
 
   public UriResourceActionImpl() {
     super(UriResourceKind.action);
@@ -48,9 +53,11 @@ public class UriResourceActionImpl extends UriResourceTypedImpl implements UriRe
     return actionImport;
   }
 
-  public UriResourceActionImpl setActionImport(final EdmActionImport actionImport) {
+  public UriResourceActionImpl setActionImport(final EdmActionImport actionImport, 
+      final List<UriParameterImpl> parameters) {
     this.actionImport = actionImport;
     setAction(actionImport.getUnboundAction());
+    setParameters(parameters);
     return this;
   }
 
@@ -63,6 +70,20 @@ public class UriResourceActionImpl extends UriResourceTypedImpl implements UriRe
   public EdmType getType() {
     return action.getReturnType().getType();
   }
+  
+  @Override
+  public List<UriParameter> getParameters() {
+    List<UriParameter> retList = new ArrayList<UriParameter>();
+    for (UriParameterImpl item : parameters) {
+      retList.add(item);
+    }
+    return retList;
+  }
+  
+  public UriResourceActionImpl setParameters(final List<UriParameterImpl> parameters) {
+    this.parameters = parameters;
+    return this;
+  }  
 
   @Override
   public String toString() {
