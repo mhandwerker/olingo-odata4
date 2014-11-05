@@ -282,11 +282,9 @@ public class UriParseTreeVisitor extends UriParserBaseVisitor<Object> {
 
   public UriResourceTypedImpl readResourcePathSegment(final PathSegmentContext ctx) {
 
-    boolean checkFirst = false;
-    if (context.contextUriInfo.getLastResourcePart() == null
-        || context.contextUriInfo.getLastResourcePart() instanceof UriResourceRootImpl) {
-      checkFirst = true;
-    }
+    final boolean checkFirst =
+        context.contextUriInfo.getLastResourcePart() == null
+        || context.contextUriInfo.getLastResourcePart() instanceof UriResourceRootImpl;
 
     String odi = ctx.vODI.getText();
 
@@ -392,8 +390,8 @@ public class UriParseTreeVisitor extends UriParserBaseVisitor<Object> {
       source = getTypeInformation(lastResourcePart);
 
       if (source.type == null) {
-        throw wrap(new UriParserSemanticException("Resource part '" + odi + "' can only applied on typed "
-            + "resource parts", UriParserSemanticException.MessageKeys.RESOURCE_PART_ONLY_FOR_TYPED_PARTS, odi));
+        throw wrap(new UriParserSemanticException("Resource part '" + odi + "' can only be applied on typed "
+            + "resource parts.", UriParserSemanticException.MessageKeys.RESOURCE_PART_ONLY_FOR_TYPED_PARTS, odi));
       }
     }
 
@@ -411,9 +409,15 @@ public class UriParseTreeVisitor extends UriParserBaseVisitor<Object> {
       }
 
       if (!(source.type instanceof EdmStructuredType)) {
-        throw wrap(new UriParserSemanticException("Can not parse'" + odi
-            + "'Previous path segment not a structural type.",
+        throw wrap(new UriParserSemanticException("Cannot parse '" + odi
+            + "'; previous path segment is not a structural type.",
             UriParserSemanticException.MessageKeys.RESOURCE_PART_MUST_BE_PRECEDED_BY_STRUCTURAL_TYPE, odi));
+      }
+
+      if (ctx.depth() <= 2  // path evaluation for the resource path
+          && source.isCollection) {
+        throw wrap(new UriParserSemanticException("Property '" + odi + "' is not allowed after collection.",
+            UriParserSemanticException.MessageKeys.PROPERTY_AFTER_COLLECTION, odi));
       }
 
       EdmStructuredType structType = (EdmStructuredType) source.type;
@@ -422,7 +426,7 @@ public class UriParseTreeVisitor extends UriParserBaseVisitor<Object> {
       if (property == null) {
         throw wrap(new UriParserSemanticException("Property '" + odi + "' not found in type '"
             + structType.getNamespace() + "." + structType.getName() + "'",
-            ctx.depth() > 2 ?  // resource path or path evaluation inside an expression?
+            ctx.depth() > 2 ?  // path evaluation inside an expression or for the resource path?
                 UriParserSemanticException.MessageKeys.EXPRESSION_PROPERTY_NOT_IN_TYPE :
                 UriParserSemanticException.MessageKeys.PROPERTY_NOT_IN_TYPE,
             structType.getFullQualifiedName().toString(), odi));
@@ -666,7 +670,7 @@ public class UriParseTreeVisitor extends UriParserBaseVisitor<Object> {
   }
 
   private String getName(final EdmType type) {
-    return type.getNamespace() + "." + type.getName();
+    return type.getFullQualifiedName().getFullQualifiedNameAsString();
   }
 
   @Override
@@ -1383,6 +1387,10 @@ public class UriParseTreeVisitor extends UriParserBaseVisitor<Object> {
 
     UriInfoImpl uriInfoImplpath = new UriInfoImpl().setKind(UriInfoKind.resource);
 
+    if (context.contextTypes.isEmpty()) {
+      throw wrap(new UriParserSemanticException("Expression '" + ctx.getText() + "' is not allowed as key value.",
+          UriParserSemanticException.MessageKeys.INVALID_KEY_VALUE, ctx.getText()));
+    }
     TypeInformation lastTypeInfo = context.contextTypes.peek();
 
     if (ctx.vIt != null || ctx.vIts != null) {
@@ -1452,8 +1460,8 @@ public class UriParseTreeVisitor extends UriParserBaseVisitor<Object> {
       ExpressionImpl expression = null;
       try {
         expression = (ExpressionImpl) ctx.vVO.accept(this);
-      } catch (Exception ex) {
-        throw wrap(new UriParserSemanticException("Invalid key value: " + valueText,
+      } catch (final RuntimeException e) {
+        throw wrap(new UriParserSemanticException("Invalid key value: " + valueText, e,
             UriParserSemanticException.MessageKeys.INVALID_KEY_VALUE, valueText));
       }
 
@@ -1468,37 +1476,39 @@ public class UriParseTreeVisitor extends UriParserBaseVisitor<Object> {
       // get list of keys for lastType
       List<String> lastKeyPredicates = lastType.getKeyPredicateNames();
 
-      // if there is exactly one key defined in the EDM, then this key the the key written in the URI,
-      // so fill the keylist with this key and return
+      // If there is exactly one key defined in the EDM, then this key is the key written in the URI,
+      // so fill the keylist with this key and return.
       if (lastKeyPredicates.size() == 1) {
-        String keyName = lastKeyPredicates.get(0);
-        List<UriParameterImpl> list = new ArrayList<UriParameterImpl>();
-        list.add(new UriParameterImpl().setName(keyName).setText(valueText).setExpression(expression));
-        return list;
+        return Collections.singletonList(new UriParameterImpl()
+            .setName(lastKeyPredicates.get(0))
+            .setText(valueText)
+            .setExpression(expression));
       }
 
       // There are more keys defined in the EDM, but only one is written in the URI. This is allowed only if
-      // referential constrains are defined on this navigation property which can be used to will up all required
-      // key.
-      // for using referential constrains the last resource part must be a navigation property
+      // referential constraints are defined on this navigation property which can be used to fill up all
+      // required keys.
+      // For using referential constraints the last resource part must be a navigation property.
       if (!(context.contextUriInfo.getLastResourcePart() instanceof UriResourceNavigationPropertyImpl)) {
-        throw wrap(new UriParserSemanticException("Not enough key properties defined",
-            UriParserSemanticException.MessageKeys.NOT_ENOUGH_KEY_PROPERTIES));
+        throw wrap(new UriParserSemanticException("Wrong number of key properties.",
+            UriParserSemanticException.MessageKeys.WRONG_NUMBER_OF_KEY_PROPERTIES,
+            Integer.toString(lastKeyPredicates.size()), "1"));
       }
       UriResourceNavigationPropertyImpl lastNav = (UriResourceNavigationPropertyImpl) last;
 
       // get the partner of the navigation property
       EdmNavigationProperty partner = lastNav.getProperty().getPartner();
       if (partner == null) {
-        throw wrap(new UriParserSemanticException("Not enough key properties defined",
-            UriParserSemanticException.MessageKeys.NOT_ENOUGH_KEY_PROPERTIES));
+        throw wrap(new UriParserSemanticException("Wrong number of key properties.",
+            UriParserSemanticException.MessageKeys.WRONG_NUMBER_OF_KEY_PROPERTIES,
+            Integer.toString(lastKeyPredicates.size()), "1"));
       }
 
       // create the keylist
       List<UriParameterImpl> list = new ArrayList<UriParameterImpl>();
 
-      // find the key not filled by referential constrains and collect the other keys filled by
-      // referential constrains
+      // Find the keys not filled by referential constraints
+      // and collect the other keys filled by referential constraints.
       String missedKey = null;
       for (String item : lastKeyPredicates) {
         String property = partner.getReferencingPropertyName(item);
@@ -1557,22 +1567,25 @@ public class UriParseTreeVisitor extends UriParserBaseVisitor<Object> {
         return list;
       }
 
-      // if not, check if the missing key predicates can be satisfied with help of the defined referential constrains
-      // for using referential constrains the last resource part must be a navigation property
+      // if not, check if the missing key predicates can be satisfied with help of the defined
+      // referential constraints
+      // for using referential constraints the last resource part must be a navigation property
       if (!(context.contextUriInfo.getLastResourcePart() instanceof UriResourceNavigationPropertyImpl)) {
-        throw wrap(new UriParserSemanticException("Not enough key properties defined",
-            UriParserSemanticException.MessageKeys.NOT_ENOUGH_KEY_PROPERTIES));
+        throw wrap(new UriParserSemanticException("Wrong number of key properties.",
+            UriParserSemanticException.MessageKeys.WRONG_NUMBER_OF_KEY_PROPERTIES,
+            Integer.toString(lastKeyPredicates.size()), Integer.toString(list.size())));
       }
       UriResourceNavigationPropertyImpl lastNav = (UriResourceNavigationPropertyImpl) last;
 
       // get the partner of the navigation property
       EdmNavigationProperty partner = lastNav.getProperty().getPartner();
       if (partner == null) {
-        throw wrap(new UriParserSemanticException("Not enough key properties defined",
-            UriParserSemanticException.MessageKeys.NOT_ENOUGH_KEY_PROPERTIES));
+        throw wrap(new UriParserSemanticException("Wrong number of key properties.",
+            UriParserSemanticException.MessageKeys.WRONG_NUMBER_OF_KEY_PROPERTIES,
+            Integer.toString(lastKeyPredicates.size()), Integer.toString(list.size())));
       }
 
-      // fill missing keys from referential constrains
+      // fill missing keys from referential constraints
       for (String key : lastKeyPredicates) {
         boolean found = false;
         for (UriParameterImpl item : list) {
@@ -1591,15 +1604,25 @@ public class UriParseTreeVisitor extends UriParserBaseVisitor<Object> {
         }
       }
 
-      // check again if all keyPredicate are filled from the URI
+      // check again if all key predicates are filled from the URI
       if (list.size() == lastKeyPredicates.size()) {
         return list;
+      } else {
+        throw wrap(new UriParserSemanticException("Wrong number of key properties.",
+            UriParserSemanticException.MessageKeys.WRONG_NUMBER_OF_KEY_PROPERTIES,
+            Integer.toString(lastKeyPredicates.size()), Integer.toString(list.size())));
       }
-
-      throw wrap(new UriParserSemanticException("Not enough key properties defined",
-          UriParserSemanticException.MessageKeys.NOT_ENOUGH_KEY_PROPERTIES));
+    } else {
+      if (context.contextReadingFunctionParameters) {
+        return Collections.emptyList();
+      } else {
+        final UriResource last = context.contextUriInfo.getLastResourcePart();
+        final int number = last instanceof UriResourcePartTyped ?
+            ((EdmEntityType) ((UriResourcePartTyped) last).getType()).getKeyPredicateNames().size() : 0;
+        throw wrap(new UriParserSemanticException("Wrong number of key properties.",
+            UriParserSemanticException.MessageKeys.WRONG_NUMBER_OF_KEY_PROPERTIES, Integer.toString(number), "0"));
+      }
     }
-    return new ArrayList<String>();
   }
 
   @Override

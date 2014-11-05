@@ -18,20 +18,22 @@
  */
 package org.apache.olingo.server.core;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.util.LinkedList;
+import java.util.List;
 
+import org.apache.olingo.commons.api.edm.EdmPrimitiveType;
+import org.apache.olingo.commons.api.edm.EdmPrimitiveTypeKind;
 import org.apache.olingo.commons.api.edm.constants.ODataServiceVersion;
 import org.apache.olingo.commons.api.format.ContentType;
 import org.apache.olingo.commons.api.format.ODataFormat;
 import org.apache.olingo.commons.api.http.HttpHeader;
 import org.apache.olingo.commons.api.http.HttpMethod;
+import org.apache.olingo.commons.core.edm.primitivetype.EdmPrimitiveTypeFactory;
 import org.apache.olingo.server.api.OData;
 import org.apache.olingo.server.api.ODataApplicationException;
 import org.apache.olingo.server.api.ODataRequest;
 import org.apache.olingo.server.api.ODataResponse;
 import org.apache.olingo.server.api.ODataServerError;
-import org.apache.olingo.server.api.ODataTranslatedException;
 import org.apache.olingo.server.api.ServiceMetadata;
 import org.apache.olingo.server.api.processor.DefaultProcessor;
 import org.apache.olingo.server.api.processor.EntitySetProcessor;
@@ -42,11 +44,15 @@ import org.apache.olingo.server.api.processor.ProcedureProcessor;
 import org.apache.olingo.server.api.processor.Processor;
 import org.apache.olingo.server.api.processor.PropertyProcessor;
 import org.apache.olingo.server.api.processor.ServiceDocumentProcessor;
+import org.apache.olingo.server.api.serializer.CustomContentTypeSupport;
+import org.apache.olingo.server.api.serializer.RepresentationType;
 import org.apache.olingo.server.api.serializer.SerializerException;
 import org.apache.olingo.server.api.uri.UriInfo;
 import org.apache.olingo.server.api.uri.UriResource;
+import org.apache.olingo.server.api.uri.UriResourceKind;
 import org.apache.olingo.server.api.uri.UriResourceNavigation;
 import org.apache.olingo.server.api.uri.UriResourcePartTyped;
+import org.apache.olingo.server.api.uri.UriResourceProperty;
 import org.apache.olingo.server.core.uri.parser.Parser;
 import org.apache.olingo.server.core.uri.parser.UriParserException;
 import org.apache.olingo.server.core.uri.parser.UriParserSemanticException;
@@ -58,9 +64,10 @@ public class ODataHandler {
 
   private final OData odata;
   private final ServiceMetadata serviceMetadata;
-  private final Map<Class<? extends Processor>, Processor> processors =
-      new HashMap<Class<? extends Processor>, Processor>();
-  private ContentType requestedContentType;
+  private List<Processor> processors = new LinkedList<Processor>();
+  private CustomContentTypeSupport customContentTypeSupport = null;
+
+  private UriInfo uriInfo;
 
   public ODataHandler(final OData server, final ServiceMetadata serviceMetadata) {
     odata = server;
@@ -78,31 +85,31 @@ public class ODataHandler {
 
     } catch (final UriValidationException e) {
       ODataServerError serverError = ODataExceptionHelper.createServerErrorObject(e, null);
-      handleException(request, response, serverError, null);
+      handleException(request, response, serverError);
     } catch (final UriParserSemanticException e) {
       ODataServerError serverError = ODataExceptionHelper.createServerErrorObject(e, null);
-      handleException(request, response, serverError, null);
+      handleException(request, response, serverError);
     } catch (final UriParserSyntaxException e) {
       ODataServerError serverError = ODataExceptionHelper.createServerErrorObject(e, null);
-      handleException(request, response, serverError, null);
+      handleException(request, response, serverError);
     } catch (final UriParserException e) {
       ODataServerError serverError = ODataExceptionHelper.createServerErrorObject(e, null);
-      handleException(request, response, serverError, null);
+      handleException(request, response, serverError);
     } catch (ContentNegotiatorException e) {
       ODataServerError serverError = ODataExceptionHelper.createServerErrorObject(e, null);
-      handleException(request, response, serverError, null);
+      handleException(request, response, serverError);
     } catch (SerializerException e) {
       ODataServerError serverError = ODataExceptionHelper.createServerErrorObject(e, null);
-      handleException(request, response, serverError, requestedContentType);
+      handleException(request, response, serverError);
     } catch (ODataHandlerException e) {
       ODataServerError serverError = ODataExceptionHelper.createServerErrorObject(e, null);
-      handleException(request, response, serverError, requestedContentType);
+      handleException(request, response, serverError);
     } catch (ODataApplicationException e) {
       ODataServerError serverError = ODataExceptionHelper.createServerErrorObject(e);
-      handleException(request, response, serverError, requestedContentType);
+      handleException(request, response, serverError);
     } catch (Exception e) {
       ODataServerError serverError = ODataExceptionHelper.createServerErrorObject(e);
-      handleException(request, response, serverError, requestedContentType);
+      handleException(request, response, serverError);
     }
     return response;
   }
@@ -112,48 +119,45 @@ public class ODataHandler {
       ODataApplicationException, SerializerException {
     validateODataVersion(request, response);
 
-    Parser parser = new Parser();
-    final UriInfo uriInfo = parser.parseUri(
-            request.getRawODataPath(), request.getRawQueryPath(),
-            null, serviceMetadata.getEdm());
+    uriInfo = new Parser().parseUri(request.getRawODataPath(), request.getRawQueryPath(), null,
+        serviceMetadata.getEdm());
 
-    UriValidator validator = new UriValidator();
-    validator.validate(uriInfo, request.getMethod());
+    final HttpMethod method = request.getMethod();
+    new UriValidator().validate(uriInfo, method);
 
     switch (uriInfo.getKind()) {
     case metadata:
-      if (request.getMethod().equals(HttpMethod.GET)) {
+      if (method.equals(HttpMethod.GET)) {
         MetadataProcessor mp = selectProcessor(MetadataProcessor.class);
 
-        requestedContentType =
-            ContentNegotiator.doContentNegotiation(uriInfo.getFormatOption(), request, mp, MetadataProcessor.class);
+        ContentType requestedContentType = ContentNegotiator.doContentNegotiation(uriInfo.getFormatOption(), request,
+            customContentTypeSupport, RepresentationType.METADATA);
         mp.readMetadata(request, response, uriInfo, requestedContentType);
       } else {
-        throw new ODataHandlerException("HttpMethod " + request.getMethod() + " not allowed for metadata document",
-            ODataHandlerException.MessageKeys.HTTP_METHOD_NOT_ALLOWED, request.getMethod().toString());
+        throw new ODataHandlerException("HttpMethod " + method + " not allowed for metadata document",
+            ODataHandlerException.MessageKeys.HTTP_METHOD_NOT_ALLOWED, method.toString());
       }
       break;
     case service:
-      if (request.getMethod().equals(HttpMethod.GET)) {
+      if (method.equals(HttpMethod.GET)) {
         if ("".equals(request.getRawODataPath())) {
           RedirectProcessor rdp = selectProcessor(RedirectProcessor.class);
           rdp.redirect(request, response);
         } else {
           ServiceDocumentProcessor sdp = selectProcessor(ServiceDocumentProcessor.class);
 
-          requestedContentType =
-              ContentNegotiator.doContentNegotiation(uriInfo.getFormatOption(), request, sdp,
-                  ServiceDocumentProcessor.class);
+          ContentType requestedContentType = ContentNegotiator.doContentNegotiation(uriInfo.getFormatOption(), request,
+              customContentTypeSupport, RepresentationType.SERVICE);
 
           sdp.readServiceDocument(request, response, uriInfo, requestedContentType);
         }
       } else {
-        throw new ODataHandlerException("HttpMethod " + request.getMethod() + " not allowed for service document",
-            ODataHandlerException.MessageKeys.HTTP_METHOD_NOT_ALLOWED, request.getMethod().toString());
+        throw new ODataHandlerException("HttpMethod " + method + " not allowed for service document",
+            ODataHandlerException.MessageKeys.HTTP_METHOD_NOT_ALLOWED, method.toString());
       }
       break;
     case resource:
-      handleResourceDispatching(request, response, uriInfo);
+      handleResourceDispatching(request, response);
       break;
     default:
       throw new ODataHandlerException("not implemented",
@@ -161,25 +165,28 @@ public class ODataHandler {
     }
   }
 
-  public void handleException(ODataRequest request, ODataResponse response, ODataServerError serverError,
-      ContentType requestedContentType) {
+  public void handleException(ODataRequest request, ODataResponse response, ODataServerError serverError) {
     ExceptionProcessor exceptionProcessor;
     try {
       exceptionProcessor = selectProcessor(ExceptionProcessor.class);
-    } catch (ODataTranslatedException e) {
-      // This cannot happen since there is always an ExceptionProcessor registered
+    } catch (ODataHandlerException e) {
+      // This cannot happen since there is always an ExceptionProcessor registered.
       exceptionProcessor = new DefaultProcessor();
     }
-    if (requestedContentType == null) {
+    ContentType requestedContentType;
+    try {
+      requestedContentType = ContentNegotiator.doContentNegotiation(
+          uriInfo == null ? null : uriInfo.getFormatOption(), request, customContentTypeSupport,
+          RepresentationType.ERROR);
+    } catch (final ContentNegotiatorException e) {
       requestedContentType = ODataFormat.JSON.getContentType(ODataServiceVersion.V40);
     }
     exceptionProcessor.processException(request, response, serverError, requestedContentType);
   }
 
-  private void handleResourceDispatching(final ODataRequest request, final ODataResponse response,
-      final UriInfo uriInfo) throws ODataHandlerException, ContentNegotiatorException, ODataApplicationException,
-      SerializerException {
-    int lastPathSegmentIndex = uriInfo.getUriResourceParts().size() - 1;
+  private void handleResourceDispatching(final ODataRequest request, final ODataResponse response)
+      throws ODataHandlerException, ContentNegotiatorException, ODataApplicationException, SerializerException {
+    final int lastPathSegmentIndex = uriInfo.getUriResourceParts().size() - 1;
     UriResource lastPathSegment = uriInfo.getUriResourceParts().get(lastPathSegmentIndex);
 
     switch (lastPathSegment.getKind()) {
@@ -188,9 +195,8 @@ public class ODataHandler {
         if (request.getMethod().equals(HttpMethod.GET)) {
           EntitySetProcessor cp = selectProcessor(EntitySetProcessor.class);
 
-          requestedContentType =
-              ContentNegotiator.doContentNegotiation(uriInfo.getFormatOption(), request, cp,
-                  EntitySetProcessor.class);
+          ContentType requestedContentType = ContentNegotiator.doContentNegotiation(uriInfo.getFormatOption(), request,
+              customContentTypeSupport, RepresentationType.COLLECTION_ENTITY);
 
           cp.readEntitySet(request, response, uriInfo, requestedContentType);
         } else {
@@ -201,8 +207,8 @@ public class ODataHandler {
         if (request.getMethod().equals(HttpMethod.GET)) {
           EntityProcessor ep = selectProcessor(EntityProcessor.class);
 
-          requestedContentType =
-              ContentNegotiator.doContentNegotiation(uriInfo.getFormatOption(), request, ep, EntityProcessor.class);
+          ContentType requestedContentType = ContentNegotiator.doContentNegotiation(uriInfo.getFormatOption(), request,
+              customContentTypeSupport, RepresentationType.ENTITY);
 
           ep.readEntity(request, response, uriInfo, requestedContentType);
         } else {
@@ -216,9 +222,8 @@ public class ODataHandler {
         if (request.getMethod().equals(HttpMethod.GET)) {
           EntitySetProcessor cp = selectProcessor(EntitySetProcessor.class);
 
-          requestedContentType =
-              ContentNegotiator.doContentNegotiation(uriInfo.getFormatOption(), request, cp,
-                  EntitySetProcessor.class);
+          ContentType requestedContentType = ContentNegotiator.doContentNegotiation(uriInfo.getFormatOption(), request,
+              customContentTypeSupport, RepresentationType.COLLECTION_ENTITY);
 
           cp.readEntitySet(request, response, uriInfo, requestedContentType);
         } else {
@@ -229,8 +234,8 @@ public class ODataHandler {
         if (request.getMethod().equals(HttpMethod.GET)) {
           EntityProcessor ep = selectProcessor(EntityProcessor.class);
 
-          requestedContentType =
-              ContentNegotiator.doContentNegotiation(uriInfo.getFormatOption(), request, ep, EntityProcessor.class);
+          ContentType requestedContentType = ContentNegotiator.doContentNegotiation(uriInfo.getFormatOption(), request,
+              customContentTypeSupport, RepresentationType.ENTITY);
 
           ep.readEntity(request, response, uriInfo, requestedContentType);
         } else {
@@ -253,8 +258,14 @@ public class ODataHandler {
       if (request.getMethod().equals(HttpMethod.GET)) {
         PropertyProcessor ep = selectProcessor(PropertyProcessor.class);
 
-        requestedContentType =
-            ContentNegotiator.doContentNegotiation(uriInfo.getFormatOption(), request, ep, PropertyProcessor.class);
+        final UriResourceProperty propertyResource = (UriResourceProperty) lastPathSegment;
+        final boolean isCollection = propertyResource.isCollection();
+        final boolean isComplex = propertyResource.getKind() == UriResourceKind.complexProperty;
+        final RepresentationType representationType =
+            isComplex ? isCollection ? RepresentationType.COLLECTION_COMPLEX : RepresentationType.COMPLEX :
+                isCollection ? RepresentationType.COLLECTION_PRIMITIVE : RepresentationType.PRIMITIVE;
+        ContentType requestedContentType = ContentNegotiator.doContentNegotiation(uriInfo.getFormatOption(), request,
+            customContentTypeSupport, representationType);
 
         ep.readProperty(request, response, uriInfo, requestedContentType);
       } else {
@@ -265,8 +276,17 @@ public class ODataHandler {
     case value:
       if (request.getMethod().equals(HttpMethod.GET)) {
         PropertyProcessor ep = selectProcessor(PropertyProcessor.class);
-        requestedContentType =
-                ContentNegotiator.doContentNegotiation(uriInfo.getFormatOption(), request, ep, PropertyProcessor.class);
+
+        final UriResourceProperty propertyResource =
+            (UriResourceProperty) uriInfo.getUriResourceParts().get(lastPathSegmentIndex - 1);
+        final RepresentationType representationType =
+            (EdmPrimitiveType) propertyResource.getType() ==
+            EdmPrimitiveTypeFactory.getInstance(EdmPrimitiveTypeKind.Binary) ?
+                RepresentationType.BINARY :
+                RepresentationType.VALUE;
+        ContentType requestedContentType = ContentNegotiator.doContentNegotiation(uriInfo.getFormatOption(), request,
+            customContentTypeSupport, representationType);
+
         ep.readPropertyValue(request, response, uriInfo, requestedContentType);
       } else {
         throw new ODataHandlerException("not implemented",
@@ -275,11 +295,13 @@ public class ODataHandler {
       break;
     case action:
       if (request.getMethod().equals(HttpMethod.POST)) {
+        ContentType requestedContentType =
+            ContentNegotiator.doContentNegotiation(
+                    uriInfo.getFormatOption(), request,
+                    customContentTypeSupport,
+                    RepresentationType.ACTION_PARAMETERS); // FIXME: refactor ProcedureProcessor
+
         ProcedureProcessor pp = selectProcessor(ProcedureProcessor.class);
-
-        requestedContentType =
-            ContentNegotiator.doContentNegotiation(uriInfo.getFormatOption(), request, pp, ProcedureProcessor.class);
-
         pp.executeAction(request, response, uriInfo, requestedContentType);
       } else {
         throw new ODataHandlerException("not implemented",
@@ -288,11 +310,13 @@ public class ODataHandler {
       break;
     case function:
       if (request.getMethod().equals(HttpMethod.GET)) {
+        ContentType requestedContentType =
+                ContentNegotiator.doContentNegotiation(
+                        uriInfo.getFormatOption(), request,
+                        customContentTypeSupport,
+                        RepresentationType.ACTION_PARAMETERS); // FIXME: refactor ProcedureProcessor
+
         ProcedureProcessor pp = selectProcessor(ProcedureProcessor.class);
-
-        requestedContentType =
-            ContentNegotiator.doContentNegotiation(uriInfo.getFormatOption(), request, pp, ProcedureProcessor.class);
-
         pp.executeFunction(request, response, uriInfo, requestedContentType);
       } else {
         throw new ODataHandlerException("not implemented",
@@ -307,7 +331,7 @@ public class ODataHandler {
 
   private void validateODataVersion(final ODataRequest request, final ODataResponse response)
       throws ODataHandlerException {
-    String maxVersion = request.getHeader(HttpHeader.ODATA_MAX_VERSION);
+    final String maxVersion = request.getHeader(HttpHeader.ODATA_MAX_VERSION);
     response.setHeader(HttpHeader.ODATA_VERSION, ODataServiceVersion.V40.toString());
 
     if (maxVersion != null) {
@@ -319,26 +343,21 @@ public class ODataHandler {
   }
 
   private <T extends Processor> T selectProcessor(final Class<T> cls) throws ODataHandlerException {
-    @SuppressWarnings("unchecked")
-    T p = (T) processors.get(cls);
-
-    if (p == null) {
-      throw new ODataHandlerException("Processor: " + cls.getName() + " not registered.",
-          ODataHandlerException.MessageKeys.PROCESSOR_NOT_IMPLEMENTED, cls.getName());
+    for (final Processor processor : processors) {
+      if (cls.isAssignableFrom(processor.getClass())) {
+        processor.init(odata, serviceMetadata);
+        return cls.cast(processor);
+      }
     }
-
-    return p;
+    throw new ODataHandlerException("Processor: " + cls.getSimpleName() + " not registered.",
+        ODataHandlerException.MessageKeys.PROCESSOR_NOT_IMPLEMENTED, cls.getSimpleName());
   }
 
   public void register(final Processor processor) {
-    processor.init(odata, serviceMetadata);
+    processors.add(0, processor);
+  }
 
-    for (Class<?> cls : processor.getClass().getInterfaces()) {
-      if (Processor.class.isAssignableFrom(cls) && cls != Processor.class) {
-        @SuppressWarnings("unchecked")
-        Class<? extends Processor> procClass = (Class<? extends Processor>) cls;
-        processors.put(procClass, processor);
-      }
-    }
+  public void register(final CustomContentTypeSupport customContentTypeSupport) {
+    this.customContentTypeSupport = customContentTypeSupport;
   }
 }

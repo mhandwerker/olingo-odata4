@@ -271,7 +271,7 @@ public class ODataHandlerTest {
     ODataRequest request = new ODataRequest();
 
     request.setMethod(HttpMethod.GET);
-    request.setRawODataPath("ESAllPrim/NavPropertyETTwoPrimMany/$count");
+    request.setRawODataPath("ESAllPrim(0)/NavPropertyETTwoPrimMany/$count");
 
     EntitySetProcessor processor = mock(EntitySetProcessor.class);
     handler.register(processor);
@@ -289,7 +289,7 @@ public class ODataHandlerTest {
     ODataRequest request = new ODataRequest();
 
     request.setMethod(HttpMethod.GET);
-    request.setRawODataPath("ESAllPrim/PropertyInt16");
+    request.setRawODataPath("ESAllPrim(0)/PropertyInt16");
 
     PropertyProcessor processor = mock(PropertyProcessor.class);
     handler.register(processor);
@@ -309,7 +309,7 @@ public class ODataHandlerTest {
     ODataRequest request = new ODataRequest();
 
     request.setMethod(HttpMethod.GET);
-    request.setRawODataPath("ESAllPrim/PropertyInt16/$value");
+    request.setRawODataPath("ESAllPrim(0)/PropertyInt16/$value");
 
     PropertyProcessor processor = mock(PropertyProcessor.class);
     handler.register(processor);
@@ -329,7 +329,7 @@ public class ODataHandlerTest {
     ODataRequest request = new ODataRequest();
 
     request.setMethod(HttpMethod.GET);
-    request.setRawODataPath("ESMixPrimCollComp/PropertyComp");
+    request.setRawODataPath("ESMixPrimCollComp(7)/PropertyComp");
 
     PropertyProcessor processor = mock(PropertyProcessor.class);
     handler.register(processor);

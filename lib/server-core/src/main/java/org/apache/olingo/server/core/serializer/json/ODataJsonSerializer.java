@@ -48,6 +48,7 @@ import org.apache.olingo.server.api.serializer.BoundProcedureOption;
 import org.apache.olingo.server.api.serializer.ODataSerializer;
 import org.apache.olingo.server.api.serializer.ODataSerializerOptions;
 import org.apache.olingo.server.api.serializer.SerializerException;
+import org.apache.olingo.server.api.uri.UriParameter;
 import org.apache.olingo.server.api.uri.queryoption.ExpandItem;
 import org.apache.olingo.server.api.uri.queryoption.ExpandOption;
 import org.apache.olingo.server.api.uri.queryoption.SelectOption;
@@ -184,17 +185,16 @@ public class ODataJsonSerializer implements ODataSerializer {
     return buffer.getInputStream();
   }
 
-  private ContextURL checkContextURL(final ODataSerializerOptions options)
-      throws SerializerException {
-    ContextURL contextURL = options == null ? null : options.getContextURL();
-    if (format != ODataFormat.JSON_NO_METADATA && contextURL == null) {
-      throw new SerializerException("ContextURL null!",
-          SerializerException.MessageKeys.NO_CONTEXT_URL);
-    }
+  private ContextURL checkContextURL(final ODataSerializerOptions options) throws SerializerException {
     if (format == ODataFormat.JSON_NO_METADATA) {
-      contextURL = null;
+      return null;
+    } else {
+      final ContextURL contextURL = options == null ? null : options.getContextURL();
+      if (contextURL == null) {
+        throw new SerializerException("ContextURL null!", SerializerException.MessageKeys.NO_CONTEXT_URL);
+      }
+      return contextURL;
     }
-    return contextURL;
   }
 
   protected void writeEntitySet(final EdmEntityType entityType, final EntitySet entitySet,
@@ -504,28 +504,18 @@ public class ODataJsonSerializer implements ODataSerializer {
   }
 
   @Override
-  public String buildContextURLSelectList(final EdmEntitySet edmEntitySet,
-      final ExpandOption expand, final SelectOption select) throws SerializerException {
-    return ContextURLHelper.buildSelectList(edmEntitySet.getEntityType(), expand, select);
-  }
-
-  @Override
-  public InputStream entityProperty(EdmProperty edmProperty,
-      Property property, ODataSerializerOptions options)
-      throws SerializerException {
+  public InputStream entityProperty(final EdmProperty edmProperty, final Property property,
+      final ODataSerializerOptions options) throws SerializerException {
     final ContextURL contextURL = checkContextURL(options);
     CircleStreamBuffer buffer = new CircleStreamBuffer();
     try {
       JsonGenerator json = new JsonFactory().createGenerator(buffer.getOutputStream());
       json.writeStartObject();
-      if (format != ODataFormat.JSON_NO_METADATA) {
-        if (contextURL != null) {
-          json.writeStringField(Constants.JSON_CONTEXT, ContextURLBuilder.create(contextURL).toASCIIString());
-        }
+      if (contextURL != null) {
+        json.writeStringField(Constants.JSON_CONTEXT, ContextURLBuilder.create(contextURL).toASCIIString());
       }
       if (property.isPrimitive() && property.isNull()) {
-        throw new SerializerException("Property value can not be null",
-            SerializerException.MessageKeys.NULL_INPUT);
+        throw new SerializerException("Property value can not be null.", SerializerException.MessageKeys.NULL_INPUT);
       } else if (property.isComplex() && !property.isNull()) {
         writeComplexPropertyValues((EdmComplexType)edmProperty.getType(), property.asComplex(), null, json);
       } else if (property.isLinkedComplex() && !property.isNull()) {
@@ -610,16 +600,26 @@ public class ODataJsonSerializer implements ODataSerializer {
   private void writeProcedureMetadata(BoundProcedureOption bpOption, JsonGenerator json) throws IOException {
     if (bpOption != null) {
       if (this.format == ODataFormat.JSON) {
-        json.writeFieldName("#"+bpOption.getProcedureName());
+        json.writeFieldName("#" + bpOption.getProcedureName());
         json.writeStartObject();
         json.writeEndObject();
       } else if (this.format == ODataFormat.JSON_FULL_METADATA) {
-        json.writeFieldName("#"+bpOption.getProcedureName());
+        json.writeFieldName("#" + bpOption.getProcedureName());
         json.writeStartObject();
         json.writeStringField("title", bpOption.getTitle());
         json.writeStringField("target", bpOption.getTarget());
         json.writeEndObject();
       }
     }
+  }
+
+  public String buildContextURLSelectList(final EdmEntitySet edmEntitySet,
+      final ExpandOption expand, final SelectOption select) throws SerializerException {
+    return ContextURLHelper.buildSelectList(edmEntitySet.getEntityType(), expand, select);
+  }
+
+  @Override
+  public String buildContextURLKeyPredicate(final List<UriParameter> keys) throws SerializerException {
+    return ContextURLHelper.buildKeyPredicate(keys);
   }
 }

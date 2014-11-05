@@ -20,24 +20,22 @@ package org.apache.olingo.server.tecsvc.processor;
 
 import java.io.ByteArrayInputStream;
 import java.io.UnsupportedEncodingException;
-import java.util.LinkedHashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
-import java.util.TreeMap;
 
 import org.apache.olingo.commons.api.data.ContextURL;
 import org.apache.olingo.commons.api.data.ContextURL.Suffix;
 import org.apache.olingo.commons.api.data.Entity;
 import org.apache.olingo.commons.api.data.EntitySet;
 import org.apache.olingo.commons.api.data.Property;
-import org.apache.olingo.commons.api.edm.Edm;
 import org.apache.olingo.commons.api.edm.EdmAction;
+import org.apache.olingo.commons.api.edm.EdmComplexType;
 import org.apache.olingo.commons.api.edm.EdmEntitySet;
-import org.apache.olingo.commons.api.edm.EdmEntityType;
 import org.apache.olingo.commons.api.edm.EdmFunction;
 import org.apache.olingo.commons.api.edm.EdmPrimitiveType;
 import org.apache.olingo.commons.api.edm.EdmPrimitiveTypeException;
+import org.apache.olingo.commons.api.edm.EdmPrimitiveTypeKind;
 import org.apache.olingo.commons.api.edm.EdmProperty;
 import org.apache.olingo.commons.api.edm.EdmReturnType;
 import org.apache.olingo.commons.api.format.ContentType;
@@ -45,6 +43,7 @@ import org.apache.olingo.commons.api.format.ODataFormat;
 import org.apache.olingo.commons.api.http.HttpContentType;
 import org.apache.olingo.commons.api.http.HttpHeader;
 import org.apache.olingo.commons.api.http.HttpStatusCode;
+import org.apache.olingo.commons.core.edm.primitivetype.EdmPrimitiveTypeFactory;
 import org.apache.olingo.server.api.OData;
 import org.apache.olingo.server.api.ODataApplicationException;
 import org.apache.olingo.server.api.ODataRequest;
@@ -85,9 +84,8 @@ public class TechnicalProcessor implements EntitySetProcessor, EntityProcessor, 
   }
 
   @Override
-  public void init(final OData odata, final ServiceMetadata edm) {
+  public void init(final OData odata, final ServiceMetadata serviceMetadata) {
     this.odata = odata;
-    this.edm = edm;
   }
 
   @Override
@@ -108,7 +106,7 @@ public class TechnicalProcessor implements EntitySetProcessor, EntityProcessor, 
       response.setContent(serializer.entitySet(edmEntitySet, entitySet,
           ODataSerializerOptions.with()
               .contextURL(format == ODataFormat.JSON_NO_METADATA ? null :
-                  getContextUrl(serializer, edmEntitySet, false, expand, select, null))
+                  getContextUrl(serializer, edmEntitySet, false, expand, select, null, null))
               .count(uriInfo.getCountOption())
               .expand(expand).select(select)
               .build()));
@@ -132,12 +130,12 @@ public class TechnicalProcessor implements EntitySetProcessor, EntityProcessor, 
       final ExpandOption expand = uriInfo.getExpandOption();
       final SelectOption select = uriInfo.getSelectOption();
       response.setContent(serializer.entity(edmEntitySet, entity,
-          ODataSerializerOptions.with()
-              .contextURL(format == ODataFormat.JSON_NO_METADATA ? null :
-                  getContextUrl(serializer, edmEntitySet, true, expand, select, null))
-              .count(uriInfo.getCountOption())
-              .expand(expand).select(select)
-              .build()));
+              ODataSerializerOptions.with()
+                      .contextURL(format == ODataFormat.JSON_NO_METADATA ? null :
+                              getContextUrl(serializer, edmEntitySet, true, expand, select, null, null))
+                      .count(uriInfo.getCountOption())
+                      .expand(expand).select(select)
+                      .build()));
       response.setStatusCode(HttpStatusCode.OK.getStatusCode());
       response.setHeader(HttpHeader.CONTENT_TYPE, requestedContentType.toContentTypeString());
     }
@@ -219,22 +217,14 @@ public class TechnicalProcessor implements EntitySetProcessor, EntityProcessor, 
 
   private ContextURL getContextUrl(final ODataSerializer serializer,
       final EdmEntitySet entitySet, final boolean isSingleEntity,
-      final ExpandOption expand, final SelectOption select, final String propertyPath)
-    throws SerializerException {
+      final ExpandOption expand, final SelectOption select,
+      final List<UriParameter> keys, final String propertyPath) throws SerializerException {
     return ContextURL.with().entitySet(entitySet)
         .selectList(serializer.buildContextURLSelectList(entitySet, expand, select))
         .suffix(isSingleEntity && propertyPath == null ? Suffix.ENTITY : null)
+        .keyPath(serializer.buildContextURLKeyPredicate(keys))
         .navOrPropertyPath(propertyPath)
         .build();
-  }
-
-  private Map<String, String> mapKeys(List<UriParameter> parameters)
-          throws ODataApplicationException {
-    Map<String, String> keys = new LinkedHashMap<String, String>();
-    for (UriParameter param: parameters) {
-      keys.put(param.getName(), param.getText());
-    }
-    return keys;
   }
 
   @Override
@@ -243,18 +233,33 @@ public class TechnicalProcessor implements EntitySetProcessor, EntityProcessor, 
     validateOptions(uriInfo.asUriInfoResource());
 
     final EdmEntitySet edmEntitySet = getEdmEntitySet(uriInfo.asUriInfoResource());
-    final UriResourceEntitySet resourceEntitySet = (UriResourceEntitySet) uriInfo.getUriResourceParts().get(0);
+    final List<UriResource> resourceParts = uriInfo.getUriResourceParts();
+    final UriResourceEntitySet resourceEntitySet = (UriResourceEntitySet) resourceParts.get(0);
     final Entity entity = readEntityInternal(uriInfo.asUriInfoResource(), edmEntitySet);
 
     if (entity == null) {
       throw new ODataApplicationException("Nothing found.", HttpStatusCode.NOT_FOUND.getStatusCode(), Locale.ROOT);
     } else {
-      final UriResourceProperty uriProperty = (UriResourceProperty) uriInfo
-          .getUriResourceParts().get(uriInfo.getUriResourceParts().size() - 1);
-      final EdmProperty edmProperty = uriProperty.getProperty();
-      final Property property = entity.getProperty(edmProperty.getName());
+      final List<String> path = getPropertyPath(resourceParts);
+      EdmProperty edmProperty = edmEntitySet.getEntityType().getStructuralProperty(path.get(0));
+      Property property = entity.getProperty(path.get(0));
+      for (final String name : path.subList(1, path.size())) {
+        if (property != null && (property.isLinkedComplex() || property.isComplex())) {
+          edmProperty = ((EdmComplexType) edmProperty.getType()).getStructuralProperty(name);
+          final List<Property> complex = property.isLinkedComplex() ?
+              property.asLinkedComplex().getValue() :
+              property.asComplex();
+          property = null;
+          for (final Property innerProperty : complex) {
+            if (innerProperty.getName().equals(name)) {
+              property = innerProperty;
+              break;
+            }
+          }
+        }
+      }
       if (property == null) {
-        response.setStatusCode(HttpStatusCode.NOT_FOUND.getStatusCode());
+        throw new ODataApplicationException("Nothing found.", HttpStatusCode.NOT_FOUND.getStatusCode(), Locale.ROOT);
       } else {
         if (property.getValue() == null) {
           response.setStatusCode(HttpStatusCode.NO_CONTENT.getStatusCode());
@@ -262,16 +267,32 @@ public class TechnicalProcessor implements EntitySetProcessor, EntityProcessor, 
           final ODataFormat format = ODataFormat.fromContentType(contentType);
           ODataSerializer serializer = odata.createSerializer(format);
           response.setContent(serializer.entityProperty(edmProperty, property,
-                  ODataSerializerOptions.with().contextURL(format == ODataFormat.JSON_NO_METADATA ? null :
-                          ContextURL.with().entitySet(edmEntitySet)
-                                  .keySegment(mapKeys(resourceEntitySet.getKeyPredicates()))
-                                  .navOrPropertyPath(edmProperty.getName())
-                                  .build()).build()));
+              ODataSerializerOptions.with().contextURL(format == ODataFormat.JSON_NO_METADATA ? null :
+                  getContextUrl(serializer, edmEntitySet, true, null, null,
+                      resourceEntitySet.getKeyPredicates(), buildPropertyPath(path)))
+                  .build()));
           response.setStatusCode(HttpStatusCode.OK.getStatusCode());
           response.setHeader(HttpHeader.CONTENT_TYPE, contentType.toContentTypeString());
         }
       }
     }
+  }
+
+  private List<String> getPropertyPath(final List<UriResource> path) {
+    List<String> result = new LinkedList<String>();
+    int index = path.size();
+    while (path.get(--index) instanceof UriResourceProperty) {
+      result.add(0, ((UriResourceProperty) path.get(index)).getProperty().getName());
+    }
+    return result;
+  }
+
+  private String buildPropertyPath(final List<String> path) {
+    StringBuilder result = new StringBuilder();
+    for (final String segment : path) {
+      result.append(result.length() == 0 ? "" : '/').append(segment);
+    }
+    return result.toString();
   }
 
   @Override
@@ -282,7 +303,7 @@ public class TechnicalProcessor implements EntitySetProcessor, EntityProcessor, 
     final EdmEntitySet edmEntitySet = getEdmEntitySet(uriInfo.asUriInfoResource());
     final Entity entity = readEntityInternal(uriInfo.asUriInfoResource(), edmEntitySet);
     if (entity == null) {
-      response.setStatusCode(HttpStatusCode.NOT_FOUND.getStatusCode());
+      throw new ODataApplicationException("Nothing found.", HttpStatusCode.NOT_FOUND.getStatusCode(), Locale.ROOT);
     } else {
       final UriResourceProperty uriProperty =
           (UriResourceProperty) uriInfo.getUriResourceParts().get(uriInfo.getUriResourceParts().size() - 2);
@@ -292,20 +313,24 @@ public class TechnicalProcessor implements EntitySetProcessor, EntityProcessor, 
         response.setStatusCode(HttpStatusCode.NO_CONTENT.getStatusCode());
       } else {
         final EdmPrimitiveType type = (EdmPrimitiveType) edmProperty.getType();
-        try {
-          final String value = type.valueToString(property.getValue(),
-              edmProperty.isNullable(), edmProperty.getMaxLength(),
-              edmProperty.getPrecision(), edmProperty.getScale(), edmProperty.isUnicode());
-          response.setContent(new ByteArrayInputStream(value.getBytes("UTF-8")));
-        } catch (final EdmPrimitiveTypeException e) {
-          throw new ODataApplicationException("Error in value formatting.",
-              HttpStatusCode.INTERNAL_SERVER_ERROR.getStatusCode(), Locale.ROOT, e);
-        } catch (final UnsupportedEncodingException e) {
-          throw new ODataApplicationException("Encoding exception.",
-              HttpStatusCode.INTERNAL_SERVER_ERROR.getStatusCode(), Locale.ROOT, e);
+        if (type == EdmPrimitiveTypeFactory.getInstance(EdmPrimitiveTypeKind.Binary)) {
+          response.setContent(new ByteArrayInputStream((byte[]) property.getValue()));
+        } else {
+          try {
+            final String value = type.valueToString(property.getValue(),
+                edmProperty.isNullable(), edmProperty.getMaxLength(),
+                edmProperty.getPrecision(), edmProperty.getScale(), edmProperty.isUnicode());
+            response.setContent(new ByteArrayInputStream(value.getBytes("UTF-8")));
+          } catch (final EdmPrimitiveTypeException e) {
+            throw new ODataApplicationException("Error in value formatting.",
+                HttpStatusCode.INTERNAL_SERVER_ERROR.getStatusCode(), Locale.ROOT, e);
+          } catch (final UnsupportedEncodingException e) {
+            throw new ODataApplicationException("Encoding exception.",
+                HttpStatusCode.INTERNAL_SERVER_ERROR.getStatusCode(), Locale.ROOT, e);
+          }
         }
+        response.setHeader(HttpHeader.CONTENT_TYPE, contentType.toContentTypeString());
         response.setStatusCode(HttpStatusCode.OK.getStatusCode());
-        response.setHeader(HttpHeader.CONTENT_TYPE, ContentType.TEXT_PLAIN.toContentTypeString());
       }
     }
   }
@@ -345,21 +370,25 @@ public class TechnicalProcessor implements EntitySetProcessor, EntityProcessor, 
         final ODataFormat format = ODataFormat.fromContentType(requestedContentType);
         ODataSerializer serializer = odata.createSerializer(format);      
         EdmReturnType returnType = edmFunction.getReturnType();
+
+        final List<UriResource> resourceParts = uriInfo.getUriResourceParts();
+        final List<String> path = getPropertyPath(resourceParts);
+
         switch(returnType.getType().getKind()) {
-        case PRIMITIVE:          
+        case PRIMITIVE:
         case COMPLEX:
-          ContextURL.Builder contextURL = ContextURL.with().propertyType(returnType.getType());
+          ContextURL.Builder contextURL = ContextURL.with().type(returnType.getType());
           if (returnType.isCollection()) {
             contextURL.asCollection();
           }
-          response.setContent(serializer.procedureReturn(returnType, (Property)result,
+          response.setContent(serializer.procedureReturn(returnType, (Property) result,
               options.contextURL(format == ODataFormat.JSON_NO_METADATA ? null :
                 contextURL.build()).build()));
           response.setStatusCode(HttpStatusCode.OK.getStatusCode());
-          response.setHeader(HttpHeader.CONTENT_TYPE, requestedContentType.toContentTypeString());          
+          response.setHeader(HttpHeader.CONTENT_TYPE, requestedContentType.toContentTypeString());
           break;
         case ENTITY:
-          EdmEntitySet edmEntitySet = null;
+          final EdmEntitySet edmEntitySet;
           if (edmFunction.isBound()) {
             //TODO: this needs to be fixed to return correct entitySet
             edmEntitySet = edmFunction.getReturnedEntitySet(null);
@@ -373,11 +402,13 @@ public class TechnicalProcessor implements EntitySetProcessor, EntityProcessor, 
           if (returnType.isCollection()) {
             response.setContent(serializer.entitySet(edmEntitySet, (EntitySet)result,                 
                 options.contextURL(format == ODataFormat.JSON_NO_METADATA ? null: 
-                    getContextUrl(serializer, edmEntitySet, false, null, null, null)).build()));           
+                    getContextUrl(serializer, edmEntitySet, false, null, null, null,
+                            buildPropertyPath(path))).build()));
           } else {
             response.setContent(serializer.entity(edmEntitySet, (Entity) result,
-                options.contextURL(format == ODataFormat.JSON_NO_METADATA ? null: 
-                      getContextUrl(serializer, edmEntitySet, true, null, null, null)).build()));           
+                    options.contextURL(format == ODataFormat.JSON_NO_METADATA ? null :
+                            getContextUrl(serializer, edmEntitySet, true, null, null, null,
+                                    null)).build()));
           }
           response.setStatusCode(HttpStatusCode.OK.getStatusCode());
           response.setHeader(HttpHeader.CONTENT_TYPE, requestedContentType.toContentTypeString());
@@ -422,23 +453,26 @@ public class TechnicalProcessor implements EntitySetProcessor, EntityProcessor, 
       response.setStatusCode(HttpStatusCode.INTERNAL_SERVER_ERROR.getStatusCode());
     } else {
         final ODataFormat format = ODataFormat.fromContentType(requestedContentType);
-        ODataSerializer serializer = odata.createSerializer(format);      
+        ODataSerializer serializer = odata.createSerializer(format);
         EdmReturnType returnType = edmAction.getReturnType();
+        final List<UriResource> resourceParts = uriInfo.getUriResourceParts();
+        final List<String> path = getPropertyPath(resourceParts);
+
         switch(returnType.getType().getKind()) {
-        case PRIMITIVE:          
+        case PRIMITIVE:
         case COMPLEX:
-          ContextURL.Builder contextURL = ContextURL.with().propertyType(returnType.getType());
+          ContextURL.Builder contextURL = ContextURL.with().type(returnType.getType());
           if (returnType.isCollection()) {
             contextURL.asCollection();
           }
-          response.setContent(serializer.procedureReturn(returnType, (Property)result,
-              options.contextURL(format == ODataFormat.JSON_NO_METADATA ? null :
-                contextURL.build()).build()));
+          response.setContent(serializer.procedureReturn(returnType, (Property) result,
+                  options.contextURL(format == ODataFormat.JSON_NO_METADATA ? null :
+                          contextURL.build()).build()));
           response.setStatusCode(HttpStatusCode.OK.getStatusCode());
-          response.setHeader(HttpHeader.CONTENT_TYPE, requestedContentType.toContentTypeString());          
+          response.setHeader(HttpHeader.CONTENT_TYPE, requestedContentType.toContentTypeString());
           break;
         case ENTITY:
-          EdmEntitySet edmEntitySet = null;
+          final EdmEntitySet edmEntitySet;
           if (edmAction.isBound()) {
             //TODO: this needs to be fixed to return correct entitySet
             edmEntitySet = edmAction.getReturnedEntitySet(null);
@@ -452,11 +486,13 @@ public class TechnicalProcessor implements EntitySetProcessor, EntityProcessor, 
           if (returnType.isCollection()) {
             response.setContent(serializer.entitySet(edmEntitySet, (EntitySet)result,                 
                 options.contextURL(format == ODataFormat.JSON_NO_METADATA ? null: 
-                    getContextUrl(serializer, edmEntitySet, false, null, null, null)).build()));           
+                    getContextUrl(serializer, edmEntitySet, false, null, null, null,
+                            buildPropertyPath(path))).build()));
           } else {
             response.setContent(serializer.entity(edmEntitySet, (Entity) result,
                 options.contextURL(format == ODataFormat.JSON_NO_METADATA ? null: 
-                      getContextUrl(serializer, edmEntitySet, true, null, null, null)).build()));           
+                      getContextUrl(serializer, edmEntitySet, true, null, null, null,
+                              buildPropertyPath(path))).build()));
           }
           response.setStatusCode(HttpStatusCode.OK.getStatusCode());
           response.setHeader(HttpHeader.CONTENT_TYPE, requestedContentType.toContentTypeString());
